@@ -10,6 +10,7 @@ Points clés :
 """
 
 import io
+import os
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
@@ -20,19 +21,37 @@ from tkinter import simpledialog, messagebox
 #  Paramètres Infoclimat
 # =============================
 
-API_TOKEN = "TmPCPmBIuVyEKVfK1v4iWkdlKcAAGAm4Tkmot21lToNPlEl65hEGA"  # Clé API Infoclimat
+# ⚠️ Ne stocke pas la clé en dur dans le code (elle est liée à ton compte/usage et peut fuiter).
+# Exporter la variable d'environnement avant d'exécuter le script :
+#   export INFOCLIMAT_TOKEN="..."
+API_TOKEN = os.getenv("INFOCLIMAT_TOKEN", "")
+
+
+def mask_token_in_url(url: str) -> str:
+    """Masque la valeur du paramètre `token=` dans une URL pour éviter de logguer une clé API."""
+    if "token=" not in url:
+        return url
+    head, tail = url.split("token=", 1)
+    # tail may contain other params after token; keep them but mask token value
+    if "&" in tail:
+        _token, rest = tail.split("&", 1)
+        return head + "token=***" + "&" + rest
+    return head + "token=***"
+
+
 STATION_ID = "07510"  # Identifiant de la station Bordeaux-Mérignac sur InfoClimat
 
 BASE_URL = "https://www.infoclimat.fr/opendata/"
 
 
-def build_url(station_id: str, start_date: str, end_date: str) -> str:
-    """Construit l'URL d'appel à l'API OpenData Infoclimat v2 (export CSV).
+def build_url(station_id: str, start_date: str, end_date: str, fmt: str = "csv") -> str:
+    """Construit l'URL d'appel à l'API OpenData Infoclimat v2 (export CSV ou JSON).
 
     Args:
         station_id: Identifiant Infoclimat de la station (ex: "07510").
         start_date: Date de début au format YYYY-MM-DD (incluse).
         end_date: Date de fin au format YYYY-MM-DD (incluse).
+        fmt: format de sortie ("csv" ou "json").
 
     Returns:
         URL complète prête à être appelée via HTTP GET.
@@ -40,11 +59,15 @@ def build_url(station_id: str, start_date: str, end_date: str) -> str:
     Exemple :
         https://www.infoclimat.fr/opendata/?version=2&method=get&format=csv&stations[]=07510&start=2026-01-12&end=2026-01-14&token=...
     """
+    if not API_TOKEN:
+        raise RuntimeError(
+            "Clé API manquante : définis INFOCLIMAT_TOKEN dans tes variables d'environnement."
+        )
     return (
         f"{BASE_URL}"
         f"?version=2"
         f"&method=get"
-        f"&format=csv"
+        f"&format={fmt}"
         f"&stations[]={station_id}"
         f"&start={start_date}"
         f"&end={end_date}"
@@ -53,23 +76,52 @@ def build_url(station_id: str, start_date: str, end_date: str) -> str:
 
 
 def fetch_csv_from_infoclimat(url: str) -> str:
-    """Télécharge le CSV brut depuis l'API Infoclimat et retourne le texte."""
-    print("Requête :", url)
-    resp = requests.get(url)
+    """Télécharge le CSV brut depuis l'API Infoclimat et retourne le texte.
+
+    Améliorations :
+    - timeout réseau
+    - diagnostic détaillé quand l'API renvoie 400/403/etc.
+    """
+    print("Requête :", mask_token_in_url(url))
+
+    # Un User-Agent explicite évite parfois des refus côté serveur/proxy.
+    headers = {"User-Agent": "weather-prevision/1.0"}
+
+    try:
+        resp = requests.get(url, headers=headers, timeout=30)
+    except requests.RequestException as e:
+        raise RuntimeError(f"Erreur réseau lors de l'appel Infoclimat: {e}") from e
+
     print("Status HTTP:", resp.status_code)
+    txt = resp.text or ""
 
-    txt = resp.text
-
-    # L'API renvoie parfois un HTTP 200 avec un message d'erreur dans le corps.
-    # Exemple fréquent : IP publique différente de celle déclarée lors de la création du token.
-    if "wrong ip adress" in txt.lower():
+    # L'API peut renvoyer un message d'erreur dans le corps.
+    lowered = txt.lower()
+    if "wrong ip" in lowered or "wrong ip adress" in lowered:
         raise RuntimeError(
             "Infoclimat renvoie 'wrong ip adress'. "
-            "Vérifie que l'IP publique utilisée pour lancer le script "
-            "correspond bien à celle déclarée lors de la génération du token."
+            "Vérifie que l'IP publique utilisée pour lancer le script correspond bien à celle déclarée "
+            "lors de la génération du token."
         )
 
-    resp.raise_for_status()
+    # Si l'API renvoie une erreur HTTP, affiche le corps pour aider au debug.
+    if resp.status_code >= 400:
+        # On tronque pour éviter d'afficher des pavés immenses.
+        body_preview = txt.strip().replace("\r", "")
+        if len(body_preview) > 800:
+            body_preview = body_preview[:800] + "..."
+
+        raise RuntimeError(
+            "Erreur Infoclimat (HTTP %s).\n" % resp.status_code
+            + "Corps de réponse (extrait):\n"
+            + body_preview
+            + "\n\nPistes courantes :\n"
+            + "- token invalide/expiré ou mal copié\n"
+            + "- token généré pour une autre IP publique (cas fréquent)\n"
+            + "- station non autorisée pour ton type d'usage (commercial/non-commercial)\n"
+            + "- paramètres start/end refusés (période > 7 jours, format, etc.)\n"
+        )
+
     return txt
 
 def parse_infoclimat_csv(csv_text: str) -> pd.DataFrame:
@@ -212,19 +264,23 @@ class DateFileDialog(simpledialog.Dialog):
         tk.Label(master, text="Date de début (YYYY-MM-DD) :").grid(row=0, column=0, sticky="w")
         tk.Label(master, text="Date de fin (YYYY-MM-DD) :").grid(row=1, column=0, sticky="w")
         tk.Label(master, text="Nom du fichier CSV de sortie :").grid(row=2, column=0, sticky="w")
+        tk.Label(master, text="Clé API Infoclimat (optionnel) :").grid(row=3, column=0, sticky="w")
 
         self.start_var = tk.StringVar()
         self.end_var = tk.StringVar()
         # Nom de fichier proposé par défaut (modifiable par l'utilisateur).
         self.file_var = tk.StringVar(value="observations_infoclimat_full.csv")
+        self.token_var = tk.StringVar(value=os.getenv("INFOCLIMAT_TOKEN", ""))
 
         self.start_entry = tk.Entry(master, textvariable=self.start_var)
         self.end_entry = tk.Entry(master, textvariable=self.end_var)
         self.file_entry = tk.Entry(master, textvariable=self.file_var)
+        self.token_entry = tk.Entry(master, textvariable=self.token_var, show="*")
 
         self.start_entry.grid(row=0, column=1, padx=5, pady=2)
         self.end_entry.grid(row=1, column=1, padx=5, pady=2)
         self.file_entry.grid(row=2, column=1, padx=5, pady=2)
+        self.token_entry.grid(row=3, column=1, padx=5, pady=2)
 
         return self.start_entry  # focus initial
 
@@ -232,8 +288,9 @@ class DateFileDialog(simpledialog.Dialog):
         start_str = self.start_var.get().strip()
         end_str = self.end_var.get().strip()
         filename = self.file_var.get().strip()
+        token = self.token_var.get().strip()
         # Résultat renvoyé au code appelant (tuple).
-        self.result = (start_str, end_str, filename)
+        self.result = (start_str, end_str, filename, token)
 
 
 def ask_date_and_filename_via_popup():
@@ -249,7 +306,12 @@ def ask_date_and_filename_via_popup():
         # L'utilisateur a fermé/annulé la fenêtre.
         raise SystemExit("Saisie annulée")
 
-    start_str, end_str, filename = dialog.result
+    start_str, end_str, filename, token = dialog.result
+
+    # Si l'utilisateur fournit une clé via la pop-up, elle prime sur la variable d'environnement.
+    global API_TOKEN
+    if token:
+        API_TOKEN = token
 
     if not filename:
         messagebox.showerror("Erreur", "Le nom de fichier ne peut pas être vide.")
@@ -311,8 +373,9 @@ def main():
         end_str = chunk_end.strftime("%Y-%m-%d")
         print(f"\nTéléchargement du bloc {start_str} -> {end_str}")
 
-        # Construit l'URL, télécharge le CSV brut, puis le transforme en DataFrame normalisé.
-        url = build_url(STATION_ID, start_str, end_str)
+        # fmt="csv" pour le parsing actuel (parse_infoclimat_csv). Si tu veux du JSON, mets fmt="json"
+        # et il faudra ajouter un parser JSON côté code.
+        url = build_url(STATION_ID, start_str, end_str, fmt="csv")
         csv_text = fetch_csv_from_infoclimat(url)
         df_chunk = parse_infoclimat_csv(csv_text)
 
