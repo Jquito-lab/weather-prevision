@@ -151,7 +151,7 @@ def parse_infoclimat_csv(csv_text: str) -> pd.DataFrame:
         return pd.DataFrame()
 
     # Infoclimat ajoute parfois une ligne d'unités (dh_utc = "YYYY-MM-DD hh:mm:ss") : on la supprime.
-    mask_units = df_raw["dh_utc"].astype(str).str.contains("YYYY-MM-DD", na=False)
+    mask_units = df_raw["dh_utc"].astype(str).str.contains("YYYY/MM/DD", na=False)
     df = df_raw.loc[~mask_units].copy()
 
     # Par sécurité : suppression d'un éventuel header dupliqué au milieu du fichier.
@@ -261,8 +261,8 @@ class DateFileDialog(simpledialog.Dialog):
     """Boîte de dialogue Tkinter : saisie date début/fin + nom du fichier CSV de sortie."""
 
     def body(self, master):
-        tk.Label(master, text="Date de début (YYYY-MM-DD) :").grid(row=0, column=0, sticky="w")
-        tk.Label(master, text="Date de fin (YYYY-MM-DD) :").grid(row=1, column=0, sticky="w")
+        tk.Label(master, text="Date de début (YYYY/MM/DD) :").grid(row=0, column=0, sticky="w")
+        tk.Label(master, text="Date de fin (YYYY/MM/DD) :").grid(row=1, column=0, sticky="w")
         tk.Label(master, text="Nom du fichier CSV de sortie :").grid(row=2, column=0, sticky="w")
         tk.Label(master, text="Clé API Infoclimat (optionnel) :").grid(row=3, column=0, sticky="w")
 
@@ -321,12 +321,23 @@ def ask_date_and_filename_via_popup():
     if "." not in filename:
         filename = filename + ".csv"
 
-    # Validation : format des dates.
+    # Validation : format des dates (accepte YYYY-MM-DD ou DD/MM/YYYY).
+    def _parse_date(s):
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                pass
+        raise ValueError("invalid date")
+
     try:
-        start_date = datetime.strptime(start_str, "%Y-%m-%d").date()
-        end_date = datetime.strptime(end_str, "%Y-%m-%d").date()
+        start_date = _parse_date(start_str)
+        end_date = _parse_date(end_str)
     except ValueError:
-        messagebox.showerror("Erreur", "Format de date invalide. Utilise YYYY-MM-DD.")
+        messagebox.showerror(
+            "Erreur",
+            "Format de date invalide. Utilise YYYY-MM-DD ou YYYY/MM/DD.",
+        )
         raise SystemExit(1)
 
     # Validation : cohérence des dates.
