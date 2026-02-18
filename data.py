@@ -257,9 +257,9 @@ def parse_infoclimat_csv(csv_text: str) -> pd.DataFrame:
     return out
 
 
-class DateFileDialog(simpledialog.Dialog):
+'''class DateFileDialog(simpledialog.Dialog):
     """Boîte de dialogue Tkinter : saisie date début/fin + nom du fichier CSV de sortie."""
-
+    
     def body(self, master):
         tk.Label(master, text="Date de début (YYYY-MM-DD) :").grid(row=0, column=0, sticky="w")
         tk.Label(master, text="Date de fin (YYYY-MM-DD) :").grid(row=1, column=0, sticky="w")
@@ -285,12 +285,53 @@ class DateFileDialog(simpledialog.Dialog):
         return self.start_entry  # focus initial
 
     def apply(self):
+        print("apply called")
         start_str = self.start_var.get().strip()
         end_str = self.end_var.get().strip()
         filename = self.file_var.get().strip()
         token = self.token_var.get().strip()
         # Résultat renvoyé au code appelant (tuple).
+        self.result = (start_str, end_str, filename, token)'''
+        
+class DateFileDialog(simpledialog.Dialog):
+
+    def __init__(self, parent, title=None):
+        self.result = None
+        super().__init__(parent, title)
+
+    def body(self, master):
+
+        self.start_var = tk.StringVar()
+        self.end_var = tk.StringVar()
+        self.file_var = tk.StringVar(value="observations_infoclimat_full.csv")
+        self.token_var = tk.StringVar()
+
+        tk.Label(master, text="Date début:").grid(row=0, column=0)
+        tk.Entry(master, textvariable=self.start_var).grid(row=0, column=1)
+
+        tk.Label(master, text="Date fin:").grid(row=1, column=0)
+        tk.Entry(master, textvariable=self.end_var).grid(row=1, column=1)
+
+        tk.Label(master, text="Fichier:").grid(row=2, column=0)
+        tk.Entry(master, textvariable=self.file_var).grid(row=2, column=1)
+
+        tk.Label(master, text="Token:").grid(row=3, column=0)
+        tk.Entry(master, textvariable=self.token_var).grid(row=3, column=1)
+
+        return master
+
+    def ok(self, event=None):
+
+        start_str = self.start_var.get().strip()
+        end_str = self.end_var.get().strip()
+        filename = self.file_var.get().strip()
+        token = self.token_var.get().strip()
+
+        print("OK CALLED:", start_str, end_str, filename, token)
+
         self.result = (start_str, end_str, filename, token)
+
+        super().ok(event)  # IMPORTANT
 
 
 def ask_date_and_filename_via_popup():
@@ -300,13 +341,19 @@ def ask_date_and_filename_via_popup():
     """
     root = tk.Tk()
     root.withdraw()  # pas de fenêtre principale visible
-
+    
     dialog = DateFileDialog(root, "Paramètres de téléchargement")
-    if dialog.result is None:
+        
+    result = dialog.result
+    
+    root.destroy()
+
+    if result is None:
         # L'utilisateur a fermé/annulé la fenêtre.
         raise SystemExit("Saisie annulée")
 
-    start_str, end_str, filename, token = dialog.result
+    start_str, end_str, filename, token = result
+
 
     # Si l'utilisateur fournit une clé via la pop-up, elle prime sur la variable d'environnement.
     global API_TOKEN
