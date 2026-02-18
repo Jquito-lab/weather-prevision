@@ -4,8 +4,8 @@ import numpy as np
 import csv
 import pandas as pd
 import matplotlib.pyplot as plt
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import LSTM, Dense, Dropout
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
 
 # ----------------- Récupération et normalisation des entrées ------------------- #
 
@@ -81,27 +81,54 @@ press = (np.array(press) - mu_P) / sig_P
 rain_log = (np.array(rain_log) - mu_r) / sig_r
 
 datas = np.array([np.array([hour_sin[i], hour_cos[i], day_sin[i], day_cos[i], humidity[i], temp[i], press[i], rain_log[i]]) for i in range(0, N)])
-outputs = np.array([np.array([temp[i], rain_log[i]]) for i in range(0, N)])
 # -------------------------------- Création du LSTM ----------------------------- #
 
+lookback = 48
 n_inputs = 8
 window_size = 24
-X, Y = [], []
+X_train, Y_rain_train, Y_temp_train = [], [], []
 
-for i in range(window_size, N):
-    X.append(datas[i-window_size:i])
-    Y.append(outputs[i:i+window_size])
+for i in range(lookback, N-lookback):
+    X_train.append(np.array(datas[i-lookback:i]))
 
-model = Sequential()
-model.add( LSTM(units = 32, return_sequences=False, input_shape=(32, n_inputs, window_size)) )
-model.add(Dense(24 * n_inputs))
+for i in range(window_size, N-24):
+    Y_rain_train.append(np.array(rain_log[i:i+window_size]))
+    Y_temp_train.append(np.array(temp[i:i+window_size]))
+
+X_train = np.array(X_train)
+Y_rain_train = np.array(Y_rain_train)
+Y_temp_train = np.array(Y_temp_train)
+
+inputs = Input(shape=(lookback, n_inputs))
+
+X = LSTM(64, return_sequences=False)(inputs)
+X = Dropout(0.2)(X)
+X = Dense(64, activation="relu")(X)
+
+temp_output = Dense(window_size, name="temperature")(X)
+rain_output = Dense(window_size, activation="sigmoid", name="rain")(X)
+
+model = Model(inputs= inputs, outputs=[temp_output, rain_output])
+
+model.compile(
+        optimizer="adam",
+        loss ={
+                "temperature": "mse",
+                "rain": "binary_crossentropy"
+        },
+        metrics={
+            "temperature": "mae",
+            "rain": "accuracy"
+        }
+    )   
+
+model.summary()
 
 
-
-
-
-
-
+model.fit(
+    
+    
+    )
 
 
 
