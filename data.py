@@ -21,7 +21,6 @@ from tkinter import simpledialog, messagebox
 #  Paramètres Infoclimat
 # =============================
 
-<<<<<<< HEAD
 # ⚠️ Ne stocke pas la clé en dur dans le code (elle est liée à ton compte/usage et peut fuiter).
 # Exporter la variable d'environnement avant d'exécuter le script :
 #   export INFOCLIMAT_TOKEN="..."
@@ -40,9 +39,6 @@ def mask_token_in_url(url: str) -> str:
     return head + "token=***"
 
 
-=======
-API_TOKEN = "ixAs9TpEcZm9yXvxH5EI8SXlTJvaV0WOgWC9GPQIp8S8pbgdugRqwg"  # Clé API Infoclimat
->>>>>>> 6bf6ce4 (data.py)
 STATION_ID = "07510"  # Identifiant de la station Bordeaux-Mérignac sur InfoClimat
 
 BASE_URL = "https://www.infoclimat.fr/opendata/"
