@@ -88,10 +88,10 @@ n_inputs = 8
 window_size = 24
 X_train, Y_rain_train, Y_temp_train = [], [], []
 
-for i in range(lookback, N-lookback):
+for i in range(lookback, N-window_size):
     X_train.append(np.array(datas[i-lookback:i]))
 
-for i in range(window_size, N-24):
+for i in range(lookback, N-window_size):
     Y_rain_train.append(np.array(rain_log[i:i+window_size]))
     Y_temp_train.append(np.array(temp[i:i+window_size]))
 
@@ -124,12 +124,14 @@ model.compile(
 
 model.summary()
 
-
 model.fit(
-    
-    
+    X_train,
+    {"temperature": Y_temp_train,
+     "rain": Y_rain_train},
+    epochs = 20,
+    batch_size = 32,
+    validation_split = 0.2
     )
 
-
-
-
+losses = model.evaluate(X_train, {"temperature": Y_temp_train, "rain": Y_rain_train})
+print(losses)
