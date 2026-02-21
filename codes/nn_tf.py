@@ -1,13 +1,15 @@
 # -*- coding: utf-8 -*-
+#%% ----------------------------Bibliothèques ----------------------------------- #
+
 import tensorflow as tf
 import numpy as np
 import csv
-import pandas as pd
 import matplotlib.pyplot as plt
 from tensorflow.keras.models import Model
 from tensorflow.keras.layers import LSTM, Dense, Dropout, Input
+from tensorflow.keras.callbacks import EarlyStopping
 
-# ----------------- Récupération et normalisation des entrées ------------------- #
+#%% ----------------- Récupération et normalisation des entrées ------------------- #
 
 def calculate_date(str_date):
     month = int(str_date[0:2]) 
@@ -26,74 +28,168 @@ def calculate_date(str_date):
         n_days += day
     return n_days-1
 
-
-humidity = []
-temp = []
-rain_log = []
-press = []
-day_sin = []
-day_cos = []
-hour_sin = []
-hour_cos = []
-N = 0
-with open("meteo_datas.csv", mode='r') as file:
-    csvfile = csv.reader(file)
-    next(csvfile)
-    for line in csvfile:
-        N += 1
-        date = calculate_date(line[1][5:10]) 
-        day_sin.append(np.sin(2*np.pi*date/365))
-        day_cos.append(np.cos(2*np.pi*date/365))
+def get_mean_std(filename, i_col):
+    tab = []
+    with open(filename, mode = 'r') as file:
+        csvfile = csv.reader(file)
+        next(csvfile)
         
-        hour = int(line[2])
-        hour_sin.append(np.sin(2*np.pi*hour/24))
-        hour_cos.append(np.cos(2*np.pi*hour/24))    
+        for line in csvfile:
+            if line[i_col] == "":
+                tab.append(tab[-1])
+            else:
+                if i_col == 9:
+                    tab.append(np.log(1 + float(line[i_col])))
+                else:
+                    tab.append(float(line[i_col]))
+    
+    return np.mean(tab), np.std(tab)
         
-        temperature = float(line[3])
-        temp.append(temperature)
+# Constantes
+mu_T, sig_T = get_mean_std("test_data.csv", 3)
+mu_P, sig_P = get_mean_std("test_data.csv", 4)
+mu_r, sig_r = get_mean_std("test_data.csv", 9)    
+
+def get_norm_data_from_file(filename):
+    humidity = []
+    temp = []
+    rain_log = []
+    press = []
+    day_sin = []
+    day_cos = []
+    hour_sin = []
+    hour_cos = []
+    N = 0
+    
+    chunks = []
+
+    with open(filename, mode='r') as file:
+        csvfile = csv.reader(file)
+        next(csvfile)
         
-        pressure = float(line[4])
-        press.append(pressure)
+        sep_found = False
         
-        hum = float(line[5])
-        humidity.append(hum)
+        humidity = []
+        temp = []
+        rain_log = []   
+        press = []
+        day_sin = []
+        day_cos = []
+        hour_sin = []
+        hour_cos = []
         
-        if line[6] == "":
-            r = 0.0
-        else:
-            r = float(line[6])
-        log_r = np.log(1+r)
-        rain_log.append(log_r)
-   
-humidity = np.array(humidity) / 100 
-   
-mu_T = np.mean(temp)
-sig_T = np.std(temp)
+        n = 0 
+        N = 0
+        for line in csvfile:
+            if line[1] != '*':
+                n += 1  
+                N += 1
+                date = calculate_date(line[1][5:10]) 
+                day_sin.append(np.sin(2*np.pi*date/365))
+                day_cos.append(np.cos(2*np.pi*date/365))
+                
+                hour = float(line[2])
+                hour_sin.append(np.sin(2*np.pi*hour/24))
+                hour_cos.append(np.cos(2*np.pi*hour/24))    
+                
+                if line[3] == "":
+                    temp.append(temp[-1])
+                else:
+                    temperature = float(line[3])
+                    temp.append(temperature)
+                
+                if line[4] == "":
+                    press.append(press[-1])
+                else:   
+                    pressure = float(line[4])
+                    press.append(pressure)
+                
+                if line[5] == "":
+                    humidity.append(humidity[-1])
+                else:
+                    hum = float(line[5])
+                    humidity.append(hum)
+                
+                if line[9] == "":
+                    rain_log.append(rain_log[-1])
+                else:
+                    r = float(line[9]) 
+                    log_r = np.log(1+r)
+                    rain_log.append(log_r)
+            else:
+                sep_found = True
+                humidity = np.array(humidity) / 100
+                
+                temp = (np.array(temp) - mu_T) / sig_T
+                press = (np.array(press) - mu_P) / sig_P
+                rain_log = (np.array(rain_log) - mu_r) / sig_r
+                
+                chunks.append(np.array([np.array([hour_sin[i], hour_cos[i], day_sin[i], day_cos[i], humidity[i], temp[i], press[i], rain_log[i]]) for i in range(0, n)]))
+                
+                humidity = []
+                temp = []
+                rain_log = []   
+                press = []
+                day_sin = []
+                day_cos = []
+                hour_sin = []
+                hour_cos = []
+                n=0
+                
+        if not(sep_found):
+            humidity = np.array(humidity) / 100
+            
+            temp = (np.array(temp) - mu_T) / sig_T
+            press = (np.array(press) - mu_P) / sig_P
+            rain_log = (np.array(rain_log) - mu_r) / sig_r
+            
+            chunks.append(np.array([np.array([hour_sin[i], hour_cos[i], day_sin[i], day_cos[i], humidity[i], temp[i], press[i], rain_log[i]]) for i in range(0, n)]))
+    
+    return chunks
 
-mu_P = np.mean(press)
-sig_P = np.std(press)
+def idx_to_date(filename, idx):
+    with open(filename, mode='r') as file:
+        csvfile = csv.reader(file)
+        next(csvfile)
+        i = 0
+        strdate = ""
+        for line in csvfile:
+            if i == idx:
+                strdate = line[1]
+                break
+            i += 1
+    return strdate
 
-mu_r = np.mean(rain_log)
-sig_r = np.std(rain_log)
+#%% -------------------------------- Création du réseau ----------------------------- #
 
-temp = (np.array(temp) - mu_T) / sig_T
-press = (np.array(press) - mu_P) / sig_P
-rain_log = (np.array(rain_log) - mu_r) / sig_r
-
-datas = np.array([np.array([hour_sin[i], hour_cos[i], day_sin[i], day_cos[i], humidity[i], temp[i], press[i], rain_log[i]]) for i in range(0, N)])
-# -------------------------------- Création du LSTM ----------------------------- #
+PLUIE_THRESHOLD = 0.5
 
 lookback = 48
 n_inputs = 8
 window_size = 24
+
+train_chunks = get_norm_data_from_file("train_data.csv")
 X_train, Y_rain_train, Y_temp_train = [], [], []
 
-for i in range(lookback, N-window_size):
-    X_train.append(np.array(datas[i-lookback:i]))
 
-for i in range(lookback, N-window_size):
-    Y_rain_train.append(np.array(rain_log[i:i+window_size]))
-    Y_temp_train.append(np.array(temp[i:i+window_size]))
+def binarize(tab):
+    for i in range(len(tab)):
+        if tab[i] > PLUIE_THRESHOLD:
+            tab[i] = 1
+        else:
+            tab[i] = 0
+    
+
+for chunk in train_chunks:
+    for i in range(lookback, len(chunk)-window_size):
+        X_train.append(np.array(chunk[i-lookback:i]))
+    for j in range(lookback, len(chunk)-window_size):
+        rain_input = np.array([chunk[k][7] for k in range(j, j+window_size)])
+        temp_input = np.array([chunk[k][5] for k in range(j, j+window_size)])
+        binarize(rain_input)
+        Y_rain_train.append(rain_input)
+        Y_temp_train.append(temp_input)
+
 
 X_train = np.array(X_train)
 Y_rain_train = np.array(Y_rain_train)
@@ -122,16 +218,101 @@ model.compile(
         }
     )   
 
+early_stop = EarlyStopping(
+    monitor='val_loss',
+    patience=10,
+    restore_best_weights=True
+    )
+
 model.summary()
 
+
+#%% --------------------- Entrainement du réseau ---------------------- #
 model.fit(
     X_train,
     {"temperature": Y_temp_train,
      "rain": Y_rain_train},
-    epochs = 20,
+    epochs = 30,
     batch_size = 32,
-    validation_split = 0.2
+    validation_split = 0.2,
+    callbacks=[early_stop]
     )
 
-losses = model.evaluate(X_train, {"temperature": Y_temp_train, "rain": Y_rain_train})
+
+#%% --------------------- Evaluation du réseau ------------------------- #
+
+test_chunks = get_norm_data_from_file("test_data.csv")
+
+
+X_test, Y_temp_test, Y_rain_test = [], [], []
+
+for chunk in test_chunks:
+    for i in range(lookback, len(chunk)-window_size):
+        X_test.append(np.array(chunk[i-lookback:i]))
+    for j in range(lookback, len(chunk)-window_size):
+        rain_input = np.array([chunk[k][7] for k in range(j, j+window_size)])
+        temp_input = np.array([chunk[k][5] for k in range(j, j+window_size)])
+        binarize(rain_input)
+        Y_rain_test.append(rain_input)
+        Y_temp_test.append(temp_input)
+
+X_test = np.array(X_test)
+Y_rain_test = np.array(Y_rain_test)
+Y_temp_test = np.array(Y_temp_test)
+
+
+losses = model.evaluate(X_test, {"temperature": Y_temp_test, "rain": Y_rain_test})
 print(losses)
+
+
+Y_temp_pred, Y_rain_pred = model.predict(X_test)
+
+def denormalize_temp(tab):
+    return tab * sig_T + mu_T
+
+def denormalize_rain(tab):
+    tab = tab*sig_r+mu_r
+    return np.exp(tab) - 1
+
+Y_temp_pred_real = denormalize_temp(Y_temp_pred)
+Y_rain_pred_real = Y_rain_pred
+Y_temp_test_real = denormalize_temp(Y_temp_test)
+
+def display_pred_test_temp(idx):
+    hours = range(1,25)
+    
+    loss = model.evaluate(np.array([X_test[idx]]), {"temperature": np.array([Y_temp_test[idx]]), "rain": np.array([Y_rain_test[idx]])})
+    strdate = idx_to_date("test_data.csv", idx)
+
+    plt.figure()
+    plt.xlim(0,25)
+    plt.xlabel("x (heures)")
+    plt.ylabel("T (°C)")
+    plt.ylim(int(min(0, np.min(Y_temp_pred_real[idx]), np.min(Y_temp_test_real[idx]) - 1)), int(5 + max( np.max(Y_temp_pred_real[idx]), np.max(Y_temp_test_real[idx]) )))
+    plt.plot(hours, Y_temp_pred_real[idx], '-r', label="Prediction")
+    plt.plot(hours, Y_temp_test_real[idx], '-b', label="True")
+    plt.title("Prédiction de température à x heures après la date:\n"+ strdate +f"\ntemp_loss = {loss[1]:.2f}\ntemp_mae = {loss[4]:.2f}")
+    
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+def display_pred_test_rain(idx):
+    hours = range(1,25)
+    
+    loss = model.evaluate(np.array([X_test[idx]]), {"temperature": np.array([Y_temp_test[idx]]), "rain": np.array([Y_rain_test[idx]])})
+    strdate = idx_to_date("test_data.csv", idx)
+    
+    plt.figure()
+    plt.ylim(-0.1,1)
+    plt.xlabel("x (heures)")
+    plt.ylabel("pluie ou non")
+    plt.plot(hours, Y_rain_pred_real[idx], '-r', label="Prediction")
+    plt.plot(hours, Y_rain_test[idx], '-b', label="True")
+    plt.title("Prédiction des intempéries à x heures après la date:\n"+ strdate +f"\nrain_loss = {loss[2]:.2f}\nrain_bce = {loss[3]:.2f}")
+    
+    plt.legend()
+    plt.grid()
+    plt.show()
+
+display_pred_test_temp(144)

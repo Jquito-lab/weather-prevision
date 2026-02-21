@@ -1,0 +1,7 @@
+- Préciser les critères d'évaluation (Loss, écart maximal, ...)
+- Préciser comment accéder aux données
+  - Scrapping de la donnée sur infoclimat.fr
+  - Parser
+- Aspects théoriques des réseaux de neurones.
+- Faire varier les paramètres d'entrainements (durée d'apprentissage)
+- 
