@@ -1,0 +1,13 @@
+- Préciser les critères d'évaluation (Loss, écart maximal, ...)
+- Préciser comment accéder aux données
+  - Scrapping de la donnée sur infoclimat.fr
+  - Parser
+- Aspects théoriques des réseaux de neurones (tensorflow)
+- Faire varier les paramètres d'entrainements (durée d'apprentissage)
+- Intervention démonstration du réseau sur le jour de l'oral
+
+A faire:
+- code avec fenêtre pour prévoir la météo de tel lendemain.
+
+Suite du projet:
+- Mini-station météo
